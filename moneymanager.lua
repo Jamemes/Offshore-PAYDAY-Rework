@@ -1,5 +1,8 @@
-function MoneyManager:can_afford_casino_fee(secured_cards, increase_infamous, preferred_card)
-	local currency = managers.menu:active_menu() and managers.menu:active_menu().logic:selected_node():item("bet_item") and managers.menu:active_menu().logic:selected_node():item("bet_item"):value() or "offshore"
+function MoneyManager:can_afford_casino_fee(secured_cards, increase_infamous, preferred_card, currency)
+	if not currency then
+		currency = managers.menu:active_menu() and managers.menu:active_menu().logic:selected_node():item("bet_item") and managers.menu:active_menu().logic:selected_node():item("bet_item"):value() or "offshore"
+	end
+	
 	local casino_fee = self:get_cost_of_casino_fee(secured_cards, increase_infamous, preferred_card)
 
 	local currencies = {
@@ -8,7 +11,7 @@ function MoneyManager:can_afford_casino_fee(secured_cards, increase_infamous, pr
 		coins = managers.custom_safehouse and managers.custom_safehouse:coins() or 0
 	}
 	
-	return casino_fee <= currencies[currency]
+	return casino_fee <= currencies[currency], math.max(math.floor(currencies[currency] / casino_fee), 1)
 end
 
 local data = MoneyManager.get_cost_of_casino_fee

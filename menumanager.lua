@@ -85,7 +85,13 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 	node:add_item(bet_item)
 
 	self:create_divider(node, "casino_divider_bet", nil, 12)
-
+	
+	local card1 = options and options.card1 == "on" and 1 or 0
+	local card2 = options and options.card2 == "on" and 1 or 0
+	local card3 = options and options.card3 == "on" and 1 or 0
+	local secure_cards = card1 + card2 + card3
+	log(secure_cards, tostring(options and options.infamous) == "on", options and options.preferred or "none", bet_item:value())
+	local _, max_bets = managers.money:can_afford_casino_fee(secure_cards, tostring(options and options.infamous) == "on", options and options.preferred or "none", bet_item:value())
 	local rolls_data = {
 		localize = false,
 		show_value = true,
@@ -93,7 +99,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 		type = "CoreMenuItemSlider.ItemSlider",
 		decimal_count = 0,
 		min = 1,
-		max = 500
+		max = max_bets
 	}
 		
 	local rolls_params = {

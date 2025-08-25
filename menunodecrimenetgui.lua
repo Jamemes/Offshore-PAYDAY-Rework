@@ -476,3 +476,110 @@ function MenuNodeCrimenetCasinoGui:_setup_layout()
 	self._total_bet:set_y(self._betting_panel:bottom() + h + 16)
 	self:set_update_values(preferred_card, secured_cards, increase_infamous, false, false)
 end
+
+function MenuNodeCrimenetCasinoGui:set_update_values(preferred_card, secured_cards, increase_infamous, infamous_enabled, safecards_enabled)
+	local currency = managers.menu:active_menu() and managers.menu:active_menu().logic:selected_node() and managers.menu:active_menu().logic:selected_node():item("bet_item") and managers.menu:active_menu().logic:selected_node():item("bet_item"):value() or "offshore"
+	
+	local function set_cost(value)
+		return currency == "coins" and managers.experience:experience_string(value / 100000) or managers.experience:cash_string(value)
+	end
+	
+	local breakdown_titles = ""
+	local breakdown_costs = ""
+	
+	local function breakdown_setup(title, cost)
+		breakdown_titles = breakdown_titles .. "\n" .. managers.localization:to_upper_text(title) .. ":"
+		breakdown_costs = breakdown_costs .. "\n" .. set_cost(cost)
+	end
+	
+	breakdown_setup("menu_casino_cost_fee", managers.money:get_cost_of_casino_entrance())
+	
+	if preferred_card ~= "none" then
+		breakdown_setup("menu_casino_option_prefer_title", tweak_data:get_value("casino", "prefer_cost"))
+	end
+
+	if increase_infamous then
+		breakdown_setup("menu_casino_option_infamous_title", tweak_data:get_value("casino", "infamous_cost"))
+	end
+
+	if secured_cards > 0 then
+		breakdown_titles = breakdown_titles .. "\n" .. managers.localization:to_upper_text("menu_casino_option_safecard_title") .. ":"
+
+		for i = 1, secured_cards do
+			breakdown_costs = breakdown_costs .. "\n" .. set_cost(tweak_data:get_value("casino", "secure_card_cost", i))
+		end
+	end
+
+	self._breakdown_titles:set_text(breakdown_titles)
+	self._breakdown_costs:set_text(breakdown_costs)
+
+	local text_string = managers.localization:to_upper_text("menu_casino_total_bet", {
+		casino_bet = set_cost(managers.money:get_cost_of_casino_fee(secured_cards, increase_infamous, preferred_card) * (currency == "coins" and 100000 or 1))
+	})
+
+	self._total_bet:set_text(text_string)
+
+	local nbr_types = 0
+
+	for _, card in pairs(self._stats_cards) do
+		for _, item in pairs(self._stat_values[card]) do
+			item:set_alpha((secured_cards == 0 or preferred_card == "none") and 1 or 0.5)
+		end
+
+		nbr_types = nbr_types + ((self._base_chances[card] > 0 or card == preferred_card) and 1 or 0)
+	end
+
+	if preferred_card == "none" then
+		for _, card in pairs(self._stats_cards) do
+			self._stat_values[card].bets:set_text("")
+			self._stat_values[card].total:set_text(string.format(MenuNodeCrimenetCasinoGui.PRECISION, self._base_chances[card]) .. "%")
+		end
+
+		self:_set_cards(0)
+	elseif nbr_types > 1 then
+		local secured_value = 100 * secured_cards
+		local preferred_chance = tweak_data:get_value("casino", "prefer_chance") * 100 * (3 - secured_cards)
+		local preferred_left = preferred_chance / (nbr_types - 1)
+
+		for _, card in pairs(self._stats_cards) do
+			local non_secured_value = self._base_chances[card] * (3 - secured_cards)
+
+			if preferred_card ~= "none" then
+				non_secured_value = non_secured_value + (card == preferred_card and preferred_chance or -preferred_left)
+
+				if non_secured_value < 0 then
+					non_secured_value = 0
+				end
+			end
+
+			local value = (non_secured_value + (card == preferred_card and secured_value or 0)) / 3 - self._base_chances[card]
+			value = self:_round_value(value)
+
+			self._stat_values[card].bets:set_text(value == 0 and "" or (value > 0 and "+" .. string.format(MenuNodeCrimenetCasinoGui.PRECISION, value) or string.format(MenuNodeCrimenetCasinoGui.PRECISION, value)) .. "%")
+			self._stat_values[card].total:set_text(string.format(MenuNodeCrimenetCasinoGui.PRECISION, value + self._base_chances[card]) .. "%")
+
+			if card == preferred_card then
+				for _, item in pairs(self._stat_values[card]) do
+					item:set_alpha(1)
+				end
+			end
+		end
+
+		self:_set_cards(secured_cards, secured_cards > 0 and self._betting_carddeck[preferred_card])
+	end
+
+	local base_value = self._infamous_chance.value_base + self._infamous_chance.value_skill
+	local bets_value = increase_infamous and self:_round_value(base_value * tweak_data:get_value("casino", "infamous_chance") - base_value) or 0
+
+	self._infamous_values.bets:set_text(increase_infamous and "+" .. string.format(MenuNodeCrimenetCasinoGui.PRECISION, bets_value) .. "%" or "")
+	self._infamous_values.total:set_text(string.format(MenuNodeCrimenetCasinoGui.PRECISION, base_value + bets_value) .. "%")
+
+	if self._betting_titles.safecards then
+		self._betting_titles.safecards:set_alpha(safecards_enabled and 1 or 0.5)
+	end
+
+	if self._betting_titles.infamous then
+		self._betting_titles.infamous:set_alpha(infamous_enabled and 1 or 0.5)
+	end
+end
+

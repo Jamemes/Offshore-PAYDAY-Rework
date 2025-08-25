@@ -1091,7 +1091,7 @@ function OffshoreCasinoComponent:_update_loot_drops()
 			align = "center",
 			alpha = 0,
 			text = managers.localization:text("menu_cs_loot_drops_not_shown", {
-				remaining = tostring(num_items - max_items * max_pages)
+				remaining = managers.experience:experience_string(num_items - max_items * max_pages)
 			}),
 			font_size = tweak_data.menu.pd2_large_font_size,
 			font = tweak_data.menu.pd2_large_font,

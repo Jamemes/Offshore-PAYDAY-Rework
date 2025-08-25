@@ -90,7 +90,6 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 	local card2 = options and options.card2 == "on" and 1 or 0
 	local card3 = options and options.card3 == "on" and 1 or 0
 	local secure_cards = card1 + card2 + card3
-	log(secure_cards, tostring(options and options.infamous) == "on", options and options.preferred or "none", bet_item:value())
 	local _, max_bets = managers.money:can_afford_casino_fee(secure_cards, tostring(options and options.infamous) == "on", options and options.preferred or "none", bet_item:value())
 	local rolls_data = {
 		localize = false,

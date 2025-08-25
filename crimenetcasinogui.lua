@@ -22,8 +22,8 @@ function CrimeNetCasinoGui:_place_bet()
 		params.offshore = managers.experience:cash_string(managers.money:total())
 	elseif currency == "coins" then
 		params.dialog = "menu_cn_casino_pay_coins"
-		params.offshore = managers.experience:cash_string(managers.custom_safehouse and managers.custom_safehouse:coins())
-		params.contract_fee = managers.experience:cash_string(managers.money:get_cost_of_casino_fee(secure_cards, increase_infamous, preferred_card))
+		params.offshore = managers.experience:experience_string(managers.custom_safehouse and managers.custom_safehouse:coins())
+		params.contract_fee = managers.experience:experience_string(managers.money:get_cost_of_casino_fee(secure_cards, increase_infamous, preferred_card))
 	end
 
 	managers.menu:show_confirm_pay_casino_fee(params)

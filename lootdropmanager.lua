@@ -214,3 +214,74 @@ function LootDropManager:infamous_chance(setup_data)
 
 	return chance * multiplier, chance, multiplier
 end
+
+function LootDropManager:get_stashed_items(preferred_item)
+	local function get_item_cost(global_value, category, id)
+		local cost = 0
+		local sell_mul = (tweak_data:get_value("money_manager", "sell_mask_multiplier") or 0)
+		if category == "weapon_mods" then
+			cost = managers.money:get_weapon_part_sell_value(id, global_value)
+		elseif category == "masks" then
+			cost = managers.money:get_mask_sell_value(id, global_value)
+		elseif category == "mask_colors" or category == "colors" or category == "materials" or category == "textures" then
+			cost = managers.money:get_mask_part_price(category, id, global_value) * sell_mul
+		end
+		
+		if cost == 0 then
+			local part_name_converter = {
+				masks = "mask",
+				textures = "pattern",
+				materials = "material",
+				colors = "color",
+				mask_colors = "color"
+			}
+			local category_value = part_name_converter[category] or "mask"
+			local mask_color_mul = category == "mask_colors" and 0.5 or 1
+			local gv_multiplier = tweak_data:get_value("money_manager", "global_value_multipliers", global_value) or 1
+			local pv = tweak_data:get_value("money_manager", "masks", category_value .. "_value", 1) * mask_color_mul or 0
+			
+			cost = math.round(pv * gv_multiplier) * sell_mul
+		end
+		
+		return cost
+	end
+	
+	local allowed_category = {
+		mask_colors = true,
+		colors = true,
+		masks = true,
+		materials = true,
+		textures = true,
+		weapon_mods = true,
+	}
+
+	local all_items = {}
+	local total_amount = 0
+	local total_cost = 0
+	for global_value, gv in pairs(Global.blackmarket_manager.inventory) do
+		for category, cv in pairs(gv) do
+			for id, amount in pairs(cv) do
+				local droppable = tweak_data.blackmarket[category] and tweak_data.blackmarket[category][id] and tweak_data.blackmarket[category][id].pcs and table.size(tweak_data.blackmarket[category][id].pcs) > 0
+				local prefered = preferred_item == category or preferred_item == "none"
+				if preferred_item == "colors" and category == "mask_colors" then
+					prefered = true
+				end
+				
+				if prefered and allowed_category[category] and (droppable or category == "mask_colors" or global_value == "gage_pack_jobs") then
+					local cost = get_item_cost(global_value, category, id)
+					table.insert(all_items, {
+						global_value = global_value,
+						type_items = category,
+						item_entry = id,
+						amount = amount,
+						cost = cost
+					})
+					total_amount = total_amount + amount
+					total_cost = total_cost + (cost * amount)
+				end
+			end
+		end
+	end
+	
+	return all_items, total_amount, total_cost
+end

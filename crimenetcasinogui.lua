@@ -17,7 +17,10 @@ function CrimeNetCasinoGui:_place_bet()
 	}
 	
 	local currency = managers.menu:active_menu().logic:selected_node():item("bet_item"):value()
-	if currency == "cash" then
+	if currency == "sell_items" then
+		params.dialog = "menu_cn_casino_sell_items"
+		params.contract_fee = managers.experience:experience_string(managers.menu:active_menu().logic:selected_node():item("rolls_item"):value())
+	elseif currency == "cash" then
 		params.dialog = "menu_cn_casino_pay_cash"
 		params.offshore = managers.experience:cash_string(managers.money:total())
 	elseif currency == "coins" then
@@ -57,9 +60,10 @@ function CrimeNetCasinoGui:_crimenet_casino_pay_fee()
 			preferred_item = preferred_card,
 			secure_cards = secure_cards,
 			increase_infamous = increase_infamous,
-			rolls_amount = managers.menu:active_menu().logic:selected_node():item("rolls_item"):value() or 1
+			rolls_amount = managers.menu:active_menu().logic:selected_node():item("rolls_item"):value() or 1,
+			bet = managers.menu:active_menu().logic:selected_node():item("bet_item"):value()
 		}
 
-		managers.menu:open_node(casino_data.rolls_amount > 1 and "offshore_casino_claim_rewards" or "crimenet_contract_casino_lootdrop", {casino_data})
+		managers.menu:open_node((casino_data.bet == "sell_items" or casino_data.rolls_amount > 1) and "offshore_casino_claim_rewards" or "crimenet_contract_casino_lootdrop", {casino_data})
 	end
 end

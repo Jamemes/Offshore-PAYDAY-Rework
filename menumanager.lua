@@ -10,8 +10,17 @@ Hooks:Add("LocalizationManagerPostInit", "TweakdataListGui_loc", function(...)
 		menu_bet_item = "Bet",
 		menu_casino_stat_cash = "Spending Cash",
 		menu_casino_stat_xp = "Experience",
+		menu_sell_items = "Items",
+		menu_disposal_item = "Pawn",
+		menu_sell_payout_item = "Items to sell amount",
+		menu_casino_sell_prefer_title = "Preferred item to sell",
+		menu_casino_total_sell = "Overall Items Value: $casino_bet;",
+		menu_generating_sells = "Selling Loot...",
+		menu_loot_drops_selling = "Remaining Loot to be sold: $loot;",
+		menu_loot_sells_not_shown = "Plus $remaining; more loot has been sold.",
 		menu_cn_casino_pay_cash = "A fee will be deducted from your spending cash when you enter the casino.\n\nCost: $contract_fee;\nSpending cash: $offshore;",
 		menu_cn_casino_pay_coins = "A fee will be deducted from your continental coins when you enter the casino.\n\nCost: $contract_fee;\nContinental coins: $offshore;",
+		menu_cn_casino_sell_items = "After confirmation, some items will be sold from your stock and you will receive cash in return. The type of items will be selected randomly, except if you have selected the category. If the expected amount of money exceeds the total value of all the items, then all the items that you have will be sold.\n\nAmount of items to be sold: $contract_fee;",
 	})
 	
 	if Idstring("russian"):key() == SystemInfo:language():key() then
@@ -26,8 +35,17 @@ Hooks:Add("LocalizationManagerPostInit", "TweakdataListGui_loc", function(...)
 			menu_bet_item = "Ставка",
 			menu_casino_stat_cash = "Наличные",
 			menu_casino_stat_xp = "Опыт",
+			menu_sell_items = "Вещи",
+			menu_disposal_item = "Заложить",
+			menu_sell_payout_item = "Вещей на продажу",
+			menu_casino_sell_prefer_title = "Предпочтительная вещь",
+			menu_casino_total_sell = "Общая ценность вещей: $casino_bet;",
+			menu_generating_sells = "Продаем добычу...",
+			menu_loot_drops_selling = "Оставшаяся добыча на продажу: $loot;",
+			menu_loot_sells_not_shown = "Еще $remaining; добычи было продано.",
 			menu_cn_casino_pay_cash = "Средства будут списаны с ваших наличных, когда вы войдете в казино.\n\nСтоимость: $contract_fee;\nНаличные: $offshore;",
 			menu_cn_casino_pay_coins = "Средства будут списаны с ваших Континенталь монет, когда вы войдете в казино.\n\nСтоимость: $contract_fee;\nКонтиненталь монеты: $offshore;",
+			menu_cn_casino_sell_items = "После подтверждения, некоторые предметы будут проданы из вашего запаса и вы получите взамен наличные деньги. Тип предметов будут выбраны в случайном порядке, за исключением если вы выбрали категорию. Если ожидаемая сумма денег превышает общую стоимость всех вещей, то все вещи которые у вас есть будут проданы.\n\nКоличество вещей на продажу: $contract_fee;",
 		})
 	end
 end)
@@ -66,12 +84,18 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 	}
 	
 	if managers.custom_safehouse then
-		bet_data[3] = {
+		table.insert(bet_data, {
 			value = "coins",
 			text_id = "menu_bet_coins",
 			_meta = "option"
-		}
+		})
 	end
+	
+	table.insert(bet_data, {
+		value = "sell_items",
+		text_id = "menu_sell_items",
+		_meta = "option"
+	})
 	
 	local bet_params = {
 		name = "bet_item",
@@ -86,11 +110,17 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 
 	self:create_divider(node, "casino_divider_bet", nil, 12)
 	
+	local sell_items = options and options.bet and options.bet == "sell_items"
 	local card1 = options and options.card1 == "on" and 1 or 0
 	local card2 = options and options.card2 == "on" and 1 or 0
 	local card3 = options and options.card3 == "on" and 1 or 0
 	local secure_cards = card1 + card2 + card3
 	local _, max_bets = managers.money:can_afford_casino_fee(secure_cards, tostring(options and options.infamous) == "on", options and options.preferred or "none", bet_item:value())
+
+	if sell_items then
+		_, max_bets = managers.lootdrop:get_stashed_items(options and options.preferred or "none")
+	end
+	
 	local rolls_data = {
 		localize = false,
 		show_value = true,
@@ -115,17 +145,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 	local preferred_data = {
 		{
 			value = "none",
-			text_id = "menu_casino_option_prefer_none",
-			_meta = "option"
-		},
-		{
-			value = "cash",
-			text_id = "menu_casino_stat_cash",
-			_meta = "option"
-		},
-		{
-			value = "xp",
-			text_id = "menu_casino_stat_xp",
+			text_id = sell_items and "menu_any" or "menu_casino_option_prefer_none",
 			_meta = "option"
 		},
 		{
@@ -155,6 +175,21 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 		},
 		type = "MenuItemMultiChoice"
 	}
+	
+	if not sell_items then
+		table.insert(preferred_data, 2, {
+			value = "cash",
+			text_id = "menu_casino_stat_cash",
+			_meta = "option"
+		})
+		
+		table.insert(preferred_data, 2, {
+			value = "xp",
+			text_id = "menu_casino_stat_xp",
+			_meta = "option"
+		})
+	end
+	
 	local preferred_params = {
 		name = "preferred_item",
 		callback = "crimenet_casino_update",
@@ -163,7 +198,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 	}
 	local preferred_item = node:create_item(preferred_data, preferred_params)
 
-	if managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 1) then
+	if not sell_items and managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 1) then
 		preferred_item:set_value("none")
 		preferred_item:set_enabled(false)
 	else
@@ -221,7 +256,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 	local preferred_value = preferred_item:value()
 	local infamous_item = node:create_item(infamous_data, infamous_params)
 
-	infamous_item:set_enabled(infamous_items[preferred_value])
+	infamous_item:set_enabled(not sell_items and infamous_items[preferred_value])
 
 	if not infamous_item:enabled() then
 		infamous_item:set_value("off")
@@ -284,7 +319,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 
 	card1_item:set_value(preferred_item:value() ~= "none" and options and options.card1 or "off")
 
-	if managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 1) then
+	if sell_items or managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 1) then
 		card1_item:set_enabled(false)
 	else
 		card1_item:set_enabled(preferred_item:value() ~= "none")
@@ -344,7 +379,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 
 	card2_item:set_value(preferred_item:value() ~= "none" and options and options.card2 or "off")
 
-	if managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 2) then
+	if sell_items or managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 2) then
 		card2_item:set_enabled(false)
 	else
 		card2_item:set_enabled(preferred_item:value() ~= "none")
@@ -404,7 +439,7 @@ function MenuCrimeNetCasinoInitiator:_create_items(node, options)
 
 	card3_item:set_value(preferred_item:value() ~= "none" and options and options.card3 or "off")
 
-	if managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 3) then
+	if sell_items or managers.experience:current_level() < tweak_data:get_value("casino", "secure_card_level", 3) then
 		card3_item:set_enabled(false)
 	else
 		card3_item:set_enabled(preferred_item:value() ~= "none")
@@ -425,15 +460,15 @@ end
 function MenuCallbackHandler:crimenet_casino_update_slider(item)
 	if item:enabled() then
 		item._value = math.round(item._value)
-		
-		local card1 = managers.menu:active_menu().logic:selected_node():item("secure_card_1") and managers.menu:active_menu().logic:selected_node():item("secure_card_1"):value() == "on" and 1 or 0
-		local card2 = managers.menu:active_menu().logic:selected_node():item("secure_card_2") and managers.menu:active_menu().logic:selected_node():item("secure_card_2"):value() == "on" and 1 or 0
-		local card3 = managers.menu:active_menu().logic:selected_node():item("secure_card_3") and managers.menu:active_menu().logic:selected_node():item("secure_card_3"):value() == "on" and 1 or 0
+		local node = managers.menu:active_menu().logic:selected_node()
+		local card1 = node:item("secure_card_1") and node:item("secure_card_1"):value() == "on" and 1 or 0
+		local card2 = node:item("secure_card_2") and node:item("secure_card_2"):value() == "on" and 1 or 0
+		local card3 = node:item("secure_card_3") and node:item("secure_card_3"):value() == "on" and 1 or 0
 		local secure_cards = card1 + card2 + card3
-		local infamous_item = managers.menu:active_menu().logic:selected_node():item("increase_infamous") and managers.menu:active_menu().logic:selected_node():item("increase_infamous")
-		local preferred_card = managers.menu:active_menu().logic:selected_node():item("preferred_item") and managers.menu:active_menu().logic:selected_node():item("preferred_item"):value() or "none"
-		local preferred_card = managers.menu:active_menu().logic:selected_node():item("preferred_item") and managers.menu:active_menu().logic:selected_node():item("preferred_item"):value() or "none"
-		managers.menu:active_menu().renderer:selected_node():set_update_values(preferred_card, secure_cards, infamous_item:value() == "on", infamous_item:enabled(), managers.menu:active_menu().logic:selected_node():item("secure_card_1") and managers.menu:active_menu().logic:selected_node():item("secure_card_1"):enabled())
+		local infamous_item = node:item("increase_infamous") and node:item("increase_infamous")
+		local preferred_card = node:item("preferred_item") and node:item("preferred_item"):value() or "none"
+		local preferred_card = node:item("preferred_item") and node:item("preferred_item"):value() or "none"
+		managers.menu:active_menu().renderer:selected_node():set_update_values(preferred_card, secure_cards, infamous_item:value() == "on", infamous_item:enabled(), node:item("secure_card_1") and node:item("secure_card_1"):enabled())
 		managers.menu_component:can_afford()
 	end
 end

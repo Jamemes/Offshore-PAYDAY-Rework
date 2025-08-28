@@ -95,6 +95,7 @@ function MenuNodeCrimenetCasinoGui:_setup_layout()
 			skip = true
 		}
 	}
+	
 	self._betting_titles = {}
 	local i = 1
 	local y = 0
@@ -192,8 +193,8 @@ function MenuNodeCrimenetCasinoGui:_setup_layout()
 	text_stats:set_bottom(self._betting_panel:top())
 
 	self._stats_cards = {
-		"cash",
 		"xp",
+		"cash",
 		"weapon_mods",
 		"masks",
 		"materials",
@@ -478,7 +479,9 @@ function MenuNodeCrimenetCasinoGui:_setup_layout()
 end
 
 function MenuNodeCrimenetCasinoGui:set_update_values(preferred_card, secured_cards, increase_infamous, infamous_enabled, safecards_enabled)
-	local currency = managers.menu:active_menu() and managers.menu:active_menu().logic:selected_node() and managers.menu:active_menu().logic:selected_node():item("bet_item") and managers.menu:active_menu().logic:selected_node():item("bet_item"):value() or "offshore"
+	local node = managers.menu:active_menu() and managers.menu:active_menu().logic:selected_node()
+	local currency = node and node:item("bet_item") and node:item("bet_item"):value() or "offshore"
+	local sell_items = currency == "sell_items"
 	
 	local function set_cost(value)
 		return currency == "coins" and managers.experience:experience_string(value / 100000) or managers.experience:cash_string(value)
@@ -492,29 +495,37 @@ function MenuNodeCrimenetCasinoGui:set_update_values(preferred_card, secured_car
 		breakdown_costs = breakdown_costs .. "\n" .. set_cost(cost)
 	end
 	
-	breakdown_setup("menu_casino_cost_fee", managers.money:get_cost_of_casino_entrance())
-	
-	if preferred_card ~= "none" then
-		breakdown_setup("menu_casino_option_prefer_title", tweak_data:get_value("casino", "prefer_cost"))
-	end
+	if not sell_items then
+		breakdown_setup("menu_casino_cost_fee", managers.money:get_cost_of_casino_entrance())
+		
+		if preferred_card ~= "none" then
+			breakdown_setup("menu_casino_option_prefer_title", tweak_data:get_value("casino", "prefer_cost"))
+		end
 
-	if increase_infamous then
-		breakdown_setup("menu_casino_option_infamous_title", tweak_data:get_value("casino", "infamous_cost"))
-	end
+		if increase_infamous then
+			breakdown_setup("menu_casino_option_infamous_title", tweak_data:get_value("casino", "infamous_cost"))
+		end
 
-	if secured_cards > 0 then
-		breakdown_titles = breakdown_titles .. "\n" .. managers.localization:to_upper_text("menu_casino_option_safecard_title") .. ":"
+		if secured_cards > 0 then
+			breakdown_titles = breakdown_titles .. "\n" .. managers.localization:to_upper_text("menu_casino_option_safecard_title") .. ":"
 
-		for i = 1, secured_cards do
-			breakdown_costs = breakdown_costs .. "\n" .. set_cost(tweak_data:get_value("casino", "secure_card_cost", i))
+			for i = 1, secured_cards do
+				breakdown_costs = breakdown_costs .. "\n" .. set_cost(tweak_data:get_value("casino", "secure_card_cost", i))
+			end
 		end
 	end
 
 	self._breakdown_titles:set_text(breakdown_titles)
 	self._breakdown_costs:set_text(breakdown_costs)
 
-	local text_string = managers.localization:to_upper_text("menu_casino_total_bet", {
-		casino_bet = set_cost(managers.money:get_cost_of_casino_fee(secured_cards, increase_infamous, preferred_card) * (currency == "coins" and 100000 or 1))
+	local payout = nil
+	if sell_items then
+		_, _, payout = managers.lootdrop:get_stashed_items(node and node:item("preferred_item") and node:item("preferred_item"):value() or "none")
+		payout = managers.experience:cash_string(payout)
+	end
+
+	local text_string = managers.localization:to_upper_text(sell_items and "menu_casino_total_sell" or "menu_casino_total_bet", {
+		casino_bet = payout or set_cost(managers.money:get_cost_of_casino_fee(secured_cards, increase_infamous, preferred_card) * (currency == "coins" and 100000 or 1))
 	})
 
 	self._total_bet:set_text(text_string)
@@ -529,7 +540,7 @@ function MenuNodeCrimenetCasinoGui:set_update_values(preferred_card, secured_car
 		nbr_types = nbr_types + ((self._base_chances[card] > 0 or card == preferred_card) and 1 or 0)
 	end
 
-	if preferred_card == "none" then
+	if sell_items or preferred_card == "none" then
 		for _, card in pairs(self._stats_cards) do
 			self._stat_values[card].bets:set_text("")
 			self._stat_values[card].total:set_text(string.format(MenuNodeCrimenetCasinoGui.PRECISION, self._base_chances[card]) .. "%")
@@ -580,6 +591,18 @@ function MenuNodeCrimenetCasinoGui:set_update_values(preferred_card, secured_car
 
 	if self._betting_titles.infamous then
 		self._betting_titles.infamous:set_alpha(infamous_enabled and 1 or 0.5)
+	end
+	
+	if self._betting_titles.bet then
+		self._betting_titles.bet:set_text(managers.localization:to_upper_text(sell_items and "menu_disposal_item" or "menu_bet_item"))
+	end
+	
+	if self._betting_titles.rolls then
+		self._betting_titles.rolls:set_text(managers.localization:to_upper_text(sell_items and "menu_sell_payout_item" or "menu_rolls_item"))
+	end
+	
+	if self._betting_titles.prefer then
+		self._betting_titles.prefer:set_text(managers.localization:to_upper_text(sell_items and "menu_casino_sell_prefer_title" or "menu_casino_option_prefer_title"))
 	end
 end
 

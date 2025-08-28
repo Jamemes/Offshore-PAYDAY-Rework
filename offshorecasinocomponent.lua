@@ -197,6 +197,7 @@ function OffshoreCasinoComponent:init(ws, fullscreen_ws, node)
 end
 
 function OffshoreCasinoComponent:close()
+
 	if alive(self._panel) then
 		self._ws:panel():remove(self._panel)
 	end
@@ -227,13 +228,13 @@ function OffshoreCasinoComponent:close()
 		managers.music:post_event("menu_music")
 	end
 	
+	managers.menu:active_menu().logic:refresh_node()
 	managers.menu_component:post_event("count_1_finished")
 end
 
-function OffshoreCasinoComponent:generate_loot_drops(amount)
+function OffshoreCasinoComponent:generate_loot_drops(casino_data)
 	self._generated_loot_drops = {}
 	
-	local casino_data = self._node:parameters().menu_component_data or {}
 	local card_secured = casino_data.secure_cards or 0
 	local card_drops = {
 		math.random(3) <= card_secured and casino_data.preferred_item
@@ -250,18 +251,15 @@ function OffshoreCasinoComponent:generate_loot_drops(amount)
 	end
 
 	card_drops[3] = card_secured > 0 and managers.lootdrop:specific_fake_loot_pc(casino_data.preferred_item)
-	local skip_types = {}
 	local setup_lootdrop_data = {
 		preferred_type = casino_data.preferred_item,
 		preferred_type_drop = card_drops[1],
 		preferred_chance = tweak_data:get_value("casino", "prefer_chance"),
 		increase_infamous = casino_data.increase_infamous and tweak_data:get_value("casino", "infamous_chance"),
-		skip_types = skip_types,
+		skip_types = {},
 		disable_difficulty = true,
 		max_pcs = 1
 	}
-	local new_lootdrop_data = {}
-	
 	
 	local function get_random_item_pc(setup_data)
 		local plvl = managers.experience:current_level()
@@ -292,12 +290,81 @@ function OffshoreCasinoComponent:generate_loot_drops(amount)
 		return item_pc
 	end
 	
-	self._loot_drops_coroutine = managers.lootdrop:new_make_casino_drop(amount, get_random_item_pc(setup_lootdrop_data), self._generated_loot_drops, setup_lootdrop_data)
+	if casino_data.bet == "sell_items" then
+		self._selling_items = true
+		self._loot_drops_coroutine = self:sell_stashed_items(casino_data, self._generated_loot_drops)
+	else
+		self._loot_drops_coroutine = managers.lootdrop:new_make_casino_drop(casino_data.rolls_amount, get_random_item_pc(setup_lootdrop_data), self._generated_loot_drops, setup_lootdrop_data)
+	end
+end
+
+function OffshoreCasinoComponent:sell_stashed_items(casino_data, return_data)
+	return_data = return_data or {}
+	return_data.items = {}
+	return_data.progress = {
+		total = casino_data.rolls_amount
+	}
+
+	local co = coroutine.create(function()
+		local itr = 0
+		local counted = 0
+		local total_cash_gained = 0
+		local for_sale = managers.lootdrop:get_stashed_items(casino_data.preferred_item)
+
+		while counted < casino_data.rolls_amount do
+			if #for_sale == 0 then
+				break
+			end
+			
+			local random_item_index = math.max(math.random(#for_sale), 1)
+			local item = for_sale[random_item_index]
+			local global_value = item.global_value
+			local category = item.type_items
+			local id = item.item_entry
+			local cost = item.cost
+
+			managers.blackmarket:remove_item(global_value, category, id)
+			managers.blackmarket:alter_global_value_item(global_value, category, nil, id, Idstring("remove_from_inventory"))
+
+			table.insert(return_data.items, {
+				global_value = global_value,
+				type_items = category,
+				item_entry = id,
+				cost = cost
+			})
+
+			counted = counted + 1
+			total_cash_gained = total_cash_gained + cost
+			return_data.progress.current = counted
+			item.amount = item.amount - 1
+
+			if item.amount <= 0 then
+				table.remove(for_sale, random_item_index)
+			end
+			
+			itr = itr + 1
+
+			if itr > 5 then
+				coroutine.yield()
+				itr = 0
+			end
+		end
+		
+		self._money_gained = total_cash_gained
+		managers.money:_add_to_total(total_cash_gained, {
+			no_offshore = true
+		})
+	end)
+
+	local result = coroutine.resume(co)
+	local status = coroutine.status(co)
+
+	return co
 end
 
 function OffshoreCasinoComponent:_setup()
 	local casino_data = self._node:parameters().menu_component_data or {}
-	self:generate_loot_drops(casino_data.rolls_amount)
+	self:generate_loot_drops(casino_data)
 
 	MenuCallbackHandler:save_progress()
 
@@ -318,7 +385,8 @@ function OffshoreCasinoComponent:_setup()
 		texture = "guis/textures/test_blur_df",
 		render_template = "VertexColorTexturedBlur3D",
 		w = self._panel:w(),
-		h = self._panel:h()
+		h = self._panel:h(),
+		layer = -2
 	})
 
 	local function func(o)
@@ -375,7 +443,7 @@ function OffshoreCasinoComponent:_setup()
 	self._progress_panel:text({
 		vertical = "top",
 		align = "left",
-		text = managers.localization:to_upper_text("menu_cs_generating_rewards"),
+		text = managers.localization:to_upper_text(casino_data.bet == "sell_items" and "menu_generating_sells" or "menu_cs_generating_rewards"),
 		font_size = tweak_data.menu.pd2_medium_font_size,
 		font = tweak_data.menu.pd2_medium_font,
 		color = tweak_data.screen_colors.text
@@ -584,7 +652,17 @@ function OffshoreCasinoComponent:_add_item_textures(lootdrop_data, panel)
 		category = "mods"
 	end
 
-	if category == "colors" then
+	if category == "mask_colors" then
+		local color = panel:bitmap({
+			texture = "guis/dlcs/mcu/textures/pd2/blackmarket/icons/mask_color/mask_color_icon",
+			layer = 0,
+			x = panel:h() / 6,
+			y = panel:h() / 6,
+			w = panel:h() / 1.5,
+			h = panel:h() / 1.5,
+			color = tweak_data.blackmarket.mask_colors[item_id].color
+		})
+	elseif category == "colors" then
 		local colors = tweak_data.blackmarket.colors[item_id].colors
 		local bg = panel:bitmap({
 			texture = "guis/textures/pd2/blackmarket/icons/colors/color_bg",
@@ -969,6 +1047,7 @@ end
 
 function OffshoreCasinoComponent:_update_loot_drops()
 	local loot_drops = self:loot_drops()
+	local casino_data = self._node:parameters().menu_component_data or {}
 
 	if #loot_drops < 1 then
 		self:next_state(0)
@@ -990,7 +1069,7 @@ function OffshoreCasinoComponent:_update_loot_drops()
 		name = "drops_remaining",
 		align = "left",
 		layer = 1,
-		text = managers.localization:to_upper_text("menu_cs_loot_drops_remaining", loot_params),
+		text = managers.localization:to_upper_text(casino_data.bet == "sell_items" and "menu_loot_drops_selling" or "menu_cs_loot_drops_remaining", loot_params),
 		font_size = tweak_data.menu.pd2_medium_font_size,
 		font = tweak_data.menu.pd2_medium_font,
 		color = tweak_data.screen_colors.text
@@ -1023,6 +1102,7 @@ function OffshoreCasinoComponent:_update_loot_drops()
 			cash = "upcard_cash",
 			masks = "upcard_mask",
 			colors = "upcard_color",
+			mask_colors = "upcard_color",
 			textures = "upcard_pattern",
 			drills = "upcard_drill",
 			weapon_bonus = "upcard_weapon_bonus"
@@ -1055,28 +1135,48 @@ function OffshoreCasinoComponent:_update_loot_drops()
 		local t = 0
 		t = t + 1 + intial_delay
 		
-		card:animate(callback(self, self, "fade_in"), 0.25, t)
+		if self._selling_items then
+			item_panel:animate(callback(self, self, "fade_in"), 0.25, t)
+			
+			t = t + 0.5 + c * 0.2
+
+			loot_params.loot = managers.experience:experience_string(num_items - i)
+			local new_text = managers.localization:to_upper_text("menu_loot_drops_selling", loot_params)
+
+			drops_remaining:animate(callback(self, self, "set_text"), new_text, t)
+
+			t = t + 1
+
+			card:animate(callback(self, self, "fade_in"), 0.25, t)
+			item_panel:animate(callback(self, self, "fade_out"), 0.25, t)
+			
+			t = t + 2 + max_items * 0.5 * 0.2
+			card:animate(callback(self, self, "flip_item_card"), "upcard_cash", t)
+			card:animate(callback(self, self, "fade_out"), 0.25, t)
+		else
+			card:animate(callback(self, self, "fade_in"), 0.25, t)
+			
+			t = t + 0.5 + c * 0.2
+
+			card:animate(callback(self, self, "flip_item_card"), card_types[lootdrop_data.type_items], t)
+
+			loot_params.loot = managers.experience:experience_string(num_items - i)
+			local new_text = managers.localization:to_upper_text("menu_cs_loot_drops_remaining", loot_params)
+
+			drops_remaining:animate(callback(self, self, "set_text"), new_text, t)
+
+			t = t + 1
+
+			item_panel:animate(callback(self, self, "fade_in"), 0.25, t)
+			card:animate(callback(self, self, "fade_out"), 0.25, t)
+
+			t = t + 2 + max_items * 0.5 * 0.2
+
+			item_panel:animate(callback(self, self, "fade_out"), 0.25, t)
+		end
 		
-		t = t + 0.5 + c * 0.2
-
-		card:animate(callback(self, self, "flip_item_card"), card_types[lootdrop_data.type_items], t)
-
-		loot_params.loot = managers.experience:experience_string(num_items - i)
-		local new_text = managers.localization:to_upper_text("menu_cs_loot_drops_remaining", loot_params)
-
-		drops_remaining:animate(callback(self, self, "set_text"), new_text, t)
-
-		t = t + 1
-
-		item_panel:animate(callback(self, self, "fade_in"), 0.25, t)
-		card:animate(callback(self, self, "fade_out"), 0.25, t)
-
-		t = t + 2 + max_items * 0.5 * 0.2
-
-		item_panel:animate(callback(self, self, "fade_out"), 0.25, t)
-
 		c = c + 1
-
+		
 		if max_items <= c then
 			c = 0
 			intial_delay = t
@@ -1085,12 +1185,16 @@ function OffshoreCasinoComponent:_update_loot_drops()
 		end_t = t
 	end
 
+	if self._selling_items then
+		end_t = end_t + 1
+	end
+
 	if num_items > max_items * max_pages then
 		local more_text = self._loot_scroll:canvas():text({
 			vertical = "center",
 			align = "center",
 			alpha = 0,
-			text = managers.localization:text("menu_cs_loot_drops_not_shown", {
+			text = managers.localization:text(casino_data.bet == "sell_items" and "menu_loot_sells_not_shown" or "menu_cs_loot_drops_not_shown", {
 				remaining = managers.experience:experience_string(num_items - max_items * max_pages)
 			}),
 			font_size = tweak_data.menu.pd2_large_font_size,
@@ -1104,7 +1208,7 @@ function OffshoreCasinoComponent:_update_loot_drops()
 
 		end_t = end_t + 2.5
 	end
-
+	
 	self._loot_scroll:update_canvas_size()
 	
 	self:next_state(end_t)
@@ -1151,8 +1255,11 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		count = count + 1
 	end
 
-	add_reward_text(managers.localization:to_upper_text("menu_experience") .. " 0", nil, "experience")
-	add_reward_text(managers.localization:to_upper_text("menu_cash_spending") .. ": 0", nil, "spending")
+	if not self._selling_items then
+		add_reward_text(managers.localization:to_upper_text("menu_experience") .. " 0", nil, "experience")
+	end
+	
+	add_reward_text(managers.localization:to_upper_text("menu_cash_spending") .. ": " .. managers.experience:cash_string(self._money_gained or 0) or "", nil, "spending")
 	add_reward_text("")
 
 	local loot_drops = self:loot_drops()
@@ -1173,9 +1280,9 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		elseif category == "cash" then
 			local amount = tweak_data:get_value("money_manager", "loot_drop_cash", item_id) or 0
 			self._total_loot_drop_cash = (self._total_loot_drop_cash or 0) + amount
-			self._list_scroll:canvas():child("spending"):set_text(managers.localization:to_upper_text("menu_cash_spending") .. " " .. managers.experience:experience_string(self._total_loot_drop_cash))
+			self._list_scroll:canvas():child("spending"):set_text(managers.localization:to_upper_text("menu_cash_spending") .. " " .. managers.experience:cash_string(self._total_loot_drop_cash))
 		
-			text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.experience:experience_string(amount)
+			text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.experience:cash_string(amount)
 			td = tweak_data.blackmarket.cash[item_id]
 		elseif category == "xp" then
 			local amount = tweak_data:get_value("experience_manager", "loot_drop_value", item_id) or 0
@@ -1207,7 +1314,7 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		end
 
 		if text then
-			add_reward_text(text, color)
+			add_reward_text(text .. (lootdrop_data.cost and string.format(" (%s)", managers.experience:cash_string(lootdrop_data.cost)) or ""), color)
 		end
 	end
 

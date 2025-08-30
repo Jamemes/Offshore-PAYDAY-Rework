@@ -17,8 +17,8 @@ for k, v in pairs(tweak_data.blackmarket.xp) do
 end
 
 if tweak_data.blackmarket.xp.xp_pda9_1 then
-	tweak_data.blackmarket.xp.xp_pda9_1.weight = 0.3
-	tweak_data.blackmarket.xp.xp_pda9_2.weight = 0.3
+	tweak_data.blackmarket.xp.xp_pda9_1.weight = 0.1
+	tweak_data.blackmarket.xp.xp_pda9_2.weight = 0.1
 	tweak_data.blackmarket.xp.xp_pda9_1.infamous = true
 	tweak_data.blackmarket.xp.xp_pda9_2.infamous = true
 end

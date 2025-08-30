@@ -292,74 +292,10 @@ function OffshoreCasinoComponent:generate_loot_drops(casino_data)
 	
 	if casino_data.bet == "sell_items" then
 		self._selling_items = true
-		self._loot_drops_coroutine = self:sell_stashed_items(casino_data, self._generated_loot_drops)
+		self._loot_drops_coroutine = managers.lootdrop:sell_stashed_items(casino_data, self._generated_loot_drops)
 	else
 		self._loot_drops_coroutine = managers.lootdrop:new_make_casino_drop(casino_data.rolls_amount, get_random_item_pc(setup_lootdrop_data), self._generated_loot_drops, setup_lootdrop_data)
 	end
-end
-
-function OffshoreCasinoComponent:sell_stashed_items(casino_data, return_data)
-	return_data = return_data or {}
-	return_data.items = {}
-	return_data.progress = {
-		total = casino_data.rolls_amount
-	}
-
-	local co = coroutine.create(function()
-		local itr = 0
-		local counted = 0
-		local total_cash_gained = 0
-		local for_sale = managers.lootdrop:get_stashed_items(casino_data.preferred_item)
-
-		while counted < casino_data.rolls_amount do
-			if #for_sale == 0 then
-				break
-			end
-			
-			local random_item_index = math.max(math.random(#for_sale), 1)
-			local item = for_sale[random_item_index]
-			local global_value = item.global_value
-			local category = item.type_items
-			local id = item.item_entry
-			local cost = item.cost
-
-			managers.blackmarket:remove_item(global_value, category, id)
-			managers.blackmarket:alter_global_value_item(global_value, category, nil, id, Idstring("remove_from_inventory"))
-
-			table.insert(return_data.items, {
-				global_value = global_value,
-				type_items = category,
-				item_entry = id,
-				cost = cost
-			})
-
-			counted = counted + 1
-			total_cash_gained = total_cash_gained + cost
-			return_data.progress.current = counted
-			item.amount = item.amount - 1
-
-			if item.amount <= 0 then
-				table.remove(for_sale, random_item_index)
-			end
-			
-			itr = itr + 1
-
-			if itr > 5 then
-				coroutine.yield()
-				itr = 0
-			end
-		end
-		
-		self._money_gained = total_cash_gained
-		managers.money:_add_to_total(total_cash_gained, {
-			no_offshore = true
-		})
-	end)
-
-	local result = coroutine.resume(co)
-	local status = coroutine.status(co)
-
-	return co
 end
 
 function OffshoreCasinoComponent:_setup()
@@ -843,8 +779,11 @@ function OffshoreCasinoComponent:has_finished_generating_rewards()
 
 		if status == "dead" then
 			self._loot_drops = clone(self._generated_loot_drops.items)
+			self._loot_amount = clone(self._generated_loot_drops.item_tbl)
+			self._money_gained = self._generated_loot_drops.money_gained
 			self._generated_loot_drops = nil
 			self._loot_drops_coroutine = nil
+			
 
 			MenuCallbackHandler:save_progress()
 
@@ -1132,6 +1071,33 @@ function OffshoreCasinoComponent:_update_loot_drops()
 
 		self:_add_item_textures(lootdrop_data, item_panel)
 		
+			
+
+		local loot_str = string.format("%s_%s_%s", lootdrop_data.global_value, lootdrop_data.type_items, lootdrop_data.item_entry)
+		local count_text = self._loot_amount[loot_str] > 1 and tostring(self._loot_amount[loot_str]) or ""
+		if count_text ~= "" then
+			local count_bg = item_panel:bitmap({
+				texture = "guis/textures/pd2/hud_progress_32px",
+				h = 24,
+				w = 24,
+				layer = 1
+			})
+			count_bg:set_rightbottom(item_panel:w(), item_panel:h())
+			
+			local amount_text = item_panel:text({
+				text = count_text,
+				vertical = "center",
+				align = "center",
+				h = 24,
+				w = 24,
+				font_size = tweak_data.menu.pd2_medium_font_size / (1 + (string.len(count_text - 1) * 0.25)),
+				font = tweak_data.menu.pd2_medium_font,
+				color = Color.black,
+				layer = 2
+			})
+			amount_text:set_center(count_bg:center())
+		end
+		
 		local t = 0
 		t = t + 1 + intial_delay
 		
@@ -1238,21 +1204,25 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		local reward_text = self._list_scroll:canvas():text({
 			alpha = 0,
 			vertical = "bottom",
-			align = "left",
+			align = name == "cost" and "right" or "left",
 			layer = 1,
 			name = name,
 			text = text,
 			x = padding,
-			y = padding + (size + 2) * count,
+			y = padding + (size + 2) * (name == "cost" and count - 1 or count),
 			h = size,
 			font_size = size,
 			font = tweak_data.menu.pd2_small_font,
 			color = color or tweak_data.screen_colors.text
 		})
+		
+		if name == "cost" then
+			reward_text:set_right(self._list_scroll:canvas():w() - (padding * 3))
+		else
+			count = count + 1
+		end
 
 		reward_text:animate(callback(self, self, "fade_in"), fade_in_t, count * fade_in_delay)
-
-		count = count + 1
 	end
 
 	if not self._selling_items then
@@ -1268,6 +1238,8 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		local td, text, color = nil
 		local item_id = lootdrop_data.item_entry
 		local category = lootdrop_data.type_items
+		local gv = lootdrop_data.global_value
+		local loot_str = string.format("%s_%s_%s", tostring(gv), tostring(category), tostring(item_id))
 
 		if category == "weapon_mods" or category == "weapon_bonus" then
 			category = "mods"
@@ -1278,18 +1250,19 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		elseif category == "textures" then
 			td = tweak_data.blackmarket.textures[item_id]
 		elseif category == "cash" then
-			local amount = tweak_data:get_value("money_manager", "loot_drop_cash", item_id) or 0
+			lootdrop_data.cost = tweak_data:get_value("money_manager", "loot_drop_cash", item_id)
+			local amount = tweak_data:get_value("money_manager", "loot_drop_cash", item_id) * self._loot_amount[loot_str] or 0
 			self._total_loot_drop_cash = (self._total_loot_drop_cash or 0) + amount
 			self._list_scroll:canvas():child("spending"):set_text(managers.localization:to_upper_text("menu_cash_spending") .. " " .. managers.experience:cash_string(self._total_loot_drop_cash))
-		
-			text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.experience:cash_string(amount)
+			text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.experience:cash_string(lootdrop_data.cost)
 			td = tweak_data.blackmarket.cash[item_id]
 		elseif category == "xp" then
-			local amount = tweak_data:get_value("experience_manager", "loot_drop_value", item_id) or 0
+			lootdrop_data.cost = tweak_data:get_value("experience_manager", "loot_drop_value", item_id)
+			local amount = tweak_data:get_value("experience_manager", "loot_drop_value", item_id) * self._loot_amount[loot_str] or 0
 			self._total_loot_drop_exp = (self._total_loot_drop_exp or 0) + amount
 			self._list_scroll:canvas():child("experience"):set_text(managers.localization:to_upper_text("menu_experience") .. " " .. managers.experience:experience_string(self._total_loot_drop_exp))
 			
-			text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.experience:experience_string(amount)
+			text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.experience:experience_string(lootdrop_data.cost)
 			local _, rarity = string.gsub(item_id, "xp_pda9", "")
 			color = rarity > 0 and tweak_data.screen_colors.infamous_color or tweak_data.screen_colors.text
 			
@@ -1305,7 +1278,6 @@ function OffshoreCasinoComponent:_update_rewards_list()
 
 		if text == nil then
 			if td.name_id then
-				local gv = lootdrop_data.global_value
 				text = managers.localization:text("bm_menu_" .. tostring(category)) .. ": " .. managers.localization:text(td.name_id)
 				color = tweak_data.lootdrop.global_values[gv] and tweak_data.lootdrop.global_values[gv].color or tweak_data.screen_colors.text
 			else
@@ -1314,7 +1286,16 @@ function OffshoreCasinoComponent:_update_rewards_list()
 		end
 
 		if text then
-			add_reward_text(text .. (lootdrop_data.cost and string.format(" (%s)", managers.experience:cash_string(lootdrop_data.cost)) or ""), color)
+			local amount = self._loot_amount[loot_str] > 1 and string.format(" (x%s)", self._loot_amount[loot_str]) or ""
+			add_reward_text(text .. amount, color)
+			
+			if lootdrop_data.cost then
+				if category == "xp" then
+					add_reward_text(managers.experience:experience_string(lootdrop_data.cost * self._loot_amount[loot_str]), color, "cost")
+				else
+					add_reward_text(managers.experience:cash_string(lootdrop_data.cost * self._loot_amount[loot_str]), color, "cost")
+				end
+			end
 		end
 	end
 

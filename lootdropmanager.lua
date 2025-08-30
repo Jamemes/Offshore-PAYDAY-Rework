@@ -89,19 +89,8 @@ function LootDropManager:droppable_items(item_pc, infamous_success)
 end
 
 function LootDropManager:new_make_casino_drop(amount, item_pc, return_data, setup_data)
-	local plvl = managers.experience:current_level()
-	local pstars = managers.experience:level_to_stars()
-	local stars = pstars
-	local pc = stars * 10
-	local pcs = tweak_data.lootdrop.STARS[stars].pcs
-	local chance_curve = tweak_data.lootdrop.STARS_CURVES[stars]
-	local start_chance = tweak_data.lootdrop.PC_CHANCE[stars]
+	local pc = managers.experience:level_to_stars() * 10
 	return_data = return_data or {}
-	return_data.job_stars = stars
-	return_data.total_stars = stars
-	return_data.player_level = plvl
-	return_data.player_stars = pstars
-	return_data.payclass = pc
 	local infamous_chance, infamous_base_chance, infamous_base_multiplier = self:infamous_chance(setup_data)
 	local infamous_success = false
 
@@ -115,13 +104,15 @@ function LootDropManager:new_make_casino_drop(amount, item_pc, return_data, setu
 
 	local droppable_items, maxed_inventory_items = self:droppable_items(item_pc or 40, infamous_success, setup_data and setup_data.skip_types)
 	local global_value, entry = nil
+	
+	return_data.item_tbl = {}
 	return_data.items = {}
 	return_data.progress = {
 		total = amount
 	}
 	local co = coroutine.create(function ()
 		local itr = 0
-
+		local generate_speed = math.max(5, amount / 1000)
 		for i = 1, amount do
 			local weighted_type_chance = {}
 			local sum = 0
@@ -168,17 +159,21 @@ function LootDropManager:new_make_casino_drop(amount, item_pc, return_data, setu
 				entry = dropped_item.entry
 			end
 
-			local item = {
-				global_value = global_value,
-				type_items = pc_type,
-				item_entry = entry
-			}
-
-			table.insert(return_data.items, item)
+			local item_str = string.format("%s_%s_%s", global_value, pc_type, entry)
+			if return_data.item_tbl[item_str] then
+				return_data.item_tbl[item_str] = return_data.item_tbl[item_str] + 1
+			else
+				table.insert(return_data.items, {
+					global_value = global_value,
+					type_items = pc_type,
+					item_entry = entry
+				})
+				return_data.item_tbl[item_str] = 1
+			end
 
 			itr = itr + 1
 
-			if itr > 5 then
+			if itr > generate_speed then
 				coroutine.yield()
 
 				itr = 0
@@ -187,6 +182,78 @@ function LootDropManager:new_make_casino_drop(amount, item_pc, return_data, setu
 			end
 		end
 	end)
+	local result = coroutine.resume(co)
+	local status = coroutine.status(co)
+
+	return co
+end
+
+function LootDropManager:sell_stashed_items(casino_data, return_data)
+	return_data = return_data or {}
+	return_data.items = {}
+	return_data.item_tbl = {}
+	return_data.progress = {
+		total = casino_data.rolls_amount
+	}
+
+	local co = coroutine.create(function()
+		local itr = 0
+		local generate_speed = math.max(5, casino_data.rolls_amount / 1000)
+		local counted = 0
+		local total_cash_gained = 0
+		local for_sale = self:get_stashed_items(casino_data.preferred_item)
+
+		while counted < casino_data.rolls_amount do
+			if #for_sale == 0 then
+				break
+			end
+			
+			local random_item_index = math.max(math.random(#for_sale), 1)
+			local item = for_sale[random_item_index]
+			local global_value = item.global_value
+			local category = item.type_items
+			local id = item.item_entry
+			local cost = item.cost
+
+			managers.blackmarket:remove_item(global_value, category, id)
+			managers.blackmarket:alter_global_value_item(global_value, category, nil, id, Idstring("remove_from_inventory"))
+
+			local item_str = string.format("%s_%s_%s", global_value, category, id)
+			if return_data.item_tbl[item_str] then
+				return_data.item_tbl[item_str] = return_data.item_tbl[item_str] + 1
+			else
+				table.insert(return_data.items, {
+					global_value = global_value,
+					type_items = category,
+					item_entry = id,
+					cost = cost
+				})
+				return_data.item_tbl[item_str] = 1
+			end
+
+			counted = counted + 1
+			total_cash_gained = total_cash_gained + cost
+			return_data.progress.current = counted
+			item.amount = item.amount - 1
+
+			if item.amount <= 0 then
+				table.remove(for_sale, random_item_index)
+			end
+			
+			itr = itr + 1
+
+			if itr > generate_speed then
+				coroutine.yield()
+				itr = 0
+			end
+		end
+		
+		return_data.money_gained = total_cash_gained
+		managers.money:_add_to_total(total_cash_gained, {
+			no_offshore = true
+		})
+	end)
+
 	local result = coroutine.resume(co)
 	local status = coroutine.status(co)
 
@@ -224,7 +291,12 @@ function LootDropManager:get_stashed_items(preferred_item)
 		elseif category == "masks" then
 			cost = managers.money:get_mask_sell_value(id, global_value)
 		elseif category == "mask_colors" or category == "colors" or category == "materials" or category == "textures" then
-			cost = managers.money:get_mask_part_price(category, id, global_value) * sell_mul
+			local cosmetic_category = category
+			if category == "colors" and type(tweak_data.blackmarket.mask_colors) == "table" then
+				cosmetic_category = "mask_colors"
+			end
+			
+			cost = managers.money:get_mask_part_price(cosmetic_category, id, global_value) * sell_mul
 		end
 		
 		if cost == 0 then

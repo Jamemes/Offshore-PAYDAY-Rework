@@ -465,7 +465,7 @@ function MenuCallbackHandler:crimenet_casino_update_slider(item)
 		local card2 = node:item("secure_card_2") and node:item("secure_card_2"):value() == "on" and 1 or 0
 		local card3 = node:item("secure_card_3") and node:item("secure_card_3"):value() == "on" and 1 or 0
 		local secure_cards = card1 + card2 + card3
-		local infamous_item = node:item("increase_infamous") and node:item("increase_infamous")
+		local infamous_item = node:item("increase_infamous")
 		local preferred_card = node:item("preferred_item") and node:item("preferred_item"):value() or "none"
 		local preferred_card = node:item("preferred_item") and node:item("preferred_item"):value() or "none"
 		managers.menu:active_menu().renderer:selected_node():set_update_values(preferred_card, secure_cards, infamous_item:value() == "on", infamous_item:enabled(), node:item("secure_card_1") and node:item("secure_card_1"):enabled())

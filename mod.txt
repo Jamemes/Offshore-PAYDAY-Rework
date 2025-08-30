@@ -2,7 +2,7 @@
 	"name": "Offshore PAYDAY Rework",
 	"description": "Offshore PAYDAY Rework.",
 	"author": "James",
-	"version": "1",
+	"version": "2",
 	"updates" : [
 		{
 			"identifier" : "offshore-payday-rework",
